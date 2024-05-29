@@ -2,8 +2,9 @@
 
 ## Usage
 
-```sh run_questionnaire.sh
-```
+```sh run_questionnaire.sh```
+
+For running test cases: ```rspec spec/questionnaire_spec.rb```
 
 ## Goal
 
