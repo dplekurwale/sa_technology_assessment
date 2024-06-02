@@ -1,88 +1,106 @@
 require 'pstore' # https://github.com/ruby/pstore
 
-class Questionnaire
-  STORE_NAME = "tendable.pstore"
-  QUESTIONS = {
-    "q1" => "Can you code in Ruby?",
-    "q2" => "Can you code in JavaScript?",
-    "q3" => "Can you code in Swift?",
-    "q4" => "Can you code in Java?",
-    "q5" => "Can you code in C#?"
-  }.freeze
-  VALID_ANSWERS = ['yes', 'y', 'no', 'n'].freeze
-  YES_ANSWERS = ['yes', 'y'].freeze
+QUESTIONS = {
+  "q1" => "Can you code in Ruby?",
+  "q2" => "Can you code in JavaScript?",
+  "q3" => "Can you code in Swift?",
+  "q4" => "Can you code in Java?",
+  "q5" => "Can you code in C#?"
+}.freeze
 
-  def initialize
-    @store = PStore.new(STORE_NAME)
-  end
-
-  def do_prompt
-    # Ask each question and get an answer from the user's input.
-    total_yes_answers = 0
-    total_questions = QUESTIONS.length
-    answers = {}
-
-    QUESTIONS.each do |question_key, question|
-      print "#{question} "
-      answer = gets.chomp.downcase
-      while !valid_input?(answer)
-        print("please enter one of the options ---#{VALID_ANSWERS}")
-        answer = gets.chomp
-      end
-      answers[question_key] = answer
-      total_yes_answers += 1 if YES_ANSWERS.include? answer
-    end
-
-    @store.transaction do
-      @store[:answers] ||= []
-      @store[:answers] << answers
-    end
-
-    rating = calculate_rating(total_yes_answers, total_questions)
-    puts "Rating for this run: #{rating}%"
-  end
-
-  def do_report
-    average_rating = calculate_average_rating
-    puts "Average rating for all runs: #{average_rating}%"
-  end
-
-  private
-
-  def calculate_rating(yes_answers, total_questions)
-    (yes_answers.to_f / total_questions * 100).round(2)
-  end
-
-  def calculate_average_rating
-    total_ratings = 0
-    total_runs = 0
-
-    @store.transaction do
-      return 0 if @store[:answers].nil?
-
-      @store[:answers].each do |answers|
-        total_yes_answers = answers.count { |_key, value| YES_ANSWERS.include? value }
-        total_questions = answers.length
-        total_runs += 1
-        total_ratings += calculate_rating(total_yes_answers, total_questions)
-      end
-    end
-
-    (total_ratings / total_runs).round(2)
+class Question
+  attr_accessor :statement, :options
+  def initialize(id, statement, options)
+    @id = id 
+    @statement = statement 
+    @options = options
   end
 
   def valid_input?(ans)
-    VALID_ANSWERS.each do |answer|
-      if answer == ans.downcase
+    @options.each do |option|
+      if option.value == ans.downcase
         return true
       end
     end
     return false
   end
 
-  def clear_store_answers
+  def score(ans)
+    @options.select{|answer| answer.value == ans.downcase}.first.score
+  end
+
+  def select_option
+    @options.map{|k| k.value}.join(', ')
+  end
+end
+
+class Answer
+  attr_accessor :value, :score
+  def initialize(value, score)
+    @value = value
+    @score = score
+  end
+end
+
+class Survey
+  STORE_NAME = "tendable.pstore"
+
+  attr_accessor :questions
+  attr_reader :score
+
+  def initialize(questions)
+    @questions = questions
+    @score = 0
+    @store = PStore.new(STORE_NAME)
+  end
+
+  def do_survey
+    self.questions.each do |question|
+      print(question.statement)
+      ans = gets.chomp
+      while !question.valid_input?(ans)
+        print("please enter one of the options ---#{question.select_option}")
+        ans = gets.chomp
+      end
+      @score += question.score(ans)
+    end
+    save_in_db
+    puts "Rating for this run: #{(@score/question_count)}%"
+    puts "Average rating for all runs: #{average_rating}%"
+  end
+
+  def save_in_db
     @store.transaction do
-      @store[:answers] = []
+      @store[:scores] ||= []
+      @store[:scores] << score
     end
   end
+
+  def average_rating
+    @store.transaction do
+      scores = @store[:scores] || []
+      return 0.0 if scores.empty?
+      (@store[:scores].sum / (question_count * @store[:scores].count)).round(2)
+    end
+  end
+
+  def question_count 
+    self.questions.count
+  end
+
+  def clear_store
+    @store.transaction do
+      @store[:scores] = []
+    end
+  end
+end
+
+if __FILE__ == $0
+  questions = QUESTIONS.map do |k, v|
+    options = [Answer.new('y', 100), Answer.new('n', 0), Answer.new('yes', 100), Answer.new('no', 0)]
+    Question.new(k, v, options)
+  end
+
+  # Survey.new(questions).clear_store
+  Survey.new(questions).do_survey
 end
